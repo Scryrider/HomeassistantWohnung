@@ -1,0 +1,194 @@
+blueprint:
+  name: Präsenzsensor - Adaptives Licht mit Lux & Tageszeit
+  description: >
+    Schaltet eine Lampe per Präsenzsensor adaptiv basierend auf Tageszeit und
+    Lux-Wert. Unter einem konfigurierbaren Lux-Schwellwert wird die Lampe
+    eingeschaltet, darüber bleibt sie aus. Helligkeit und Szene werden je nach
+    Tageszeit gewählt. Kompatibel mit dem Aqara FP300 und ähnlichen Sensoren.
+  domain: automation
+  input:
+    praesenz_sensor:
+      name: Präsenzsensor
+      description: Binary Sensor der die Anwesenheit erkennt (on = jemand da)
+      selector:
+        entity:
+          domain: binary_sensor
+    lux_sensor:
+      name: Helligkeitssensor
+      description: Sensor der den Lux-Wert im Raum misst
+      selector:
+        entity:
+          domain: sensor
+    lux_schwellwert:
+      name: Lux-Schwellwert
+      description: Über diesem Wert bleibt die Lampe aus (Raum hell genug)
+      default: 300
+      selector:
+        number:
+          min: 0
+          max: 2000
+          unit_of_measurement: lx
+    licht_entity:
+      name: Lampe
+      description: Die zu steuernde Lampe
+      selector:
+        entity:
+          domain: light
+    szene_morgen:
+      name: Szene Morgen
+      description: Szene für den Morgenzeitraum
+      selector:
+        entity:
+          domain: scene
+    szene_tag:
+      name: Szene Tag / Abend
+      description: Szene für den Tag- und Abendzeitraum
+      selector:
+        entity:
+          domain: scene
+    szene_nacht:
+      name: Szene Nacht
+      description: Szene für den Nachtzeitraum
+      selector:
+        entity:
+          domain: scene
+    morgen_start:
+      name: Morgen ab
+      description: Beginn des Morgenzeitraums
+      default: "06:00:00"
+      selector:
+        time:
+    morgen_ende:
+      name: Morgen bis
+      description: Ende des Morgenzeitraums
+      default: "10:00:00"
+      selector:
+        time:
+    abend_start:
+      name: Nacht ab
+      description: Ab dieser Uhrzeit gilt Nachthelligkeit
+      default: "23:00:00"
+      selector:
+        time:
+    helligkeit_morgen:
+      name: Helligkeit Morgen
+      description: Helligkeit in Prozent für den Morgenzeitraum
+      default: 70
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+    helligkeit_tag:
+      name: Helligkeit Tag / Abend
+      description: Helligkeit in Prozent für den Tag- und Abendzeitraum
+      default: 90
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+    helligkeit_nacht:
+      name: Helligkeit Nacht
+      description: Helligkeit in Prozent für den Nachtzeitraum
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+    ausschalt_verzoegerung:
+      name: Ausschaltverzögerung
+      description: Sekunden bis das Licht nach dem Verlassen ausgeht (0 = sofort)
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 600
+          unit_of_measurement: s
+
+trigger:
+  - platform: state
+    entity_id: !input praesenz_sensor
+    to: "on"
+    id: praesenz_da
+  - platform: state
+    entity_id: !input praesenz_sensor
+    to: "off"
+    id: praesenz_weg
+
+action:
+  - variables:
+      lux_schwellwert: !input lux_schwellwert
+      morgen_start: !input morgen_start
+      morgen_ende: !input morgen_ende
+      abend_start: !input abend_start
+      helligkeit_morgen: !input helligkeit_morgen
+      helligkeit_tag: !input helligkeit_tag
+      helligkeit_nacht: !input helligkeit_nacht
+      ausschalt_verzoegerung: !input ausschalt_verzoegerung
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: praesenz_da
+          - condition: numeric_state
+            entity_id: !input lux_sensor
+            below: !input lux_schwellwert
+          - condition: time
+            after: !input morgen_start
+            before: !input morgen_ende
+        sequence:
+          - service: scene.turn_on
+            target:
+              entity_id: !input szene_morgen
+          - service: light.turn_on
+            target:
+              entity_id: !input licht_entity
+            data:
+              brightness_pct: "{{ helligkeit_morgen }}"
+      - conditions:
+          - condition: trigger
+            id: praesenz_da
+          - condition: numeric_state
+            entity_id: !input lux_sensor
+            below: !input lux_schwellwert
+          - condition: time
+            after: !input morgen_ende
+            before: !input abend_start
+        sequence:
+          - service: scene.turn_on
+            target:
+              entity_id: !input szene_tag
+          - service: light.turn_on
+            target:
+              entity_id: !input licht_entity
+            data:
+              brightness_pct: "{{ helligkeit_tag }}"
+      - conditions:
+          - condition: trigger
+            id: praesenz_da
+          - condition: numeric_state
+            entity_id: !input lux_sensor
+            below: !input lux_schwellwert
+          - condition: time
+            after: !input abend_start
+            before: !input morgen_start
+        sequence:
+          - service: scene.turn_on
+            target:
+              entity_id: !input szene_nacht
+          - service: light.turn_on
+            target:
+              entity_id: !input licht_entity
+            data:
+              brightness_pct: "{{ helligkeit_nacht }}"
+      - conditions:
+          - condition: trigger
+            id: praesenz_weg
+        sequence:
+          - delay:
+              seconds: "{{ ausschalt_verzoegerung }}"
+          - service: light.turn_off
+            target:
+              entity_id: !input licht_entity
+mode: single

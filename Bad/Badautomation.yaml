@@ -1,0 +1,75 @@
+alias: Bad Licht - Präsenz FP300
+description: Präsenz = Licht an (adaptiv) | Keine Präsenz = Licht aus | Lux-Check
+trigger:
+  - platform: state
+    entity_id: binary_sensor.presence_multi_sensor_fp300_belegung
+    to: "on"
+    id: praesenz_da
+  - platform: state
+    entity_id: binary_sensor.presence_multi_sensor_fp300_belegung
+    to: "off"
+    id: praesenz_weg
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: praesenz_da
+          - condition: numeric_state
+            entity_id: sensor.presence_multi_sensor_fp300_beleuchtungsstarke
+            below: 300
+          - condition: time
+            after: "06:00:00"
+            before: "10:00:00"
+        sequence:
+          - service: scene.turn_on
+            target:
+              entity_id: scene.bad_morgens
+          - service: light.turn_on
+            target:
+              entity_id: light.kajplats_e27_cws_globe_1055lm_2
+            data:
+              brightness_pct: 70
+      - conditions:
+          - condition: trigger
+            id: praesenz_da
+          - condition: numeric_state
+            entity_id: sensor.presence_multi_sensor_fp300_beleuchtungsstarke
+            below: 300
+          - condition: time
+            after: "10:00:00"
+            before: "23:00:00"
+        sequence:
+          - service: scene.turn_on
+            target:
+              entity_id: scene.sexy_bad_licht
+          - service: light.turn_on
+            target:
+              entity_id: light.kajplats_e27_cws_globe_1055lm_2
+            data:
+              brightness_pct: 90
+      - conditions:
+          - condition: trigger
+            id: praesenz_da
+          - condition: numeric_state
+            entity_id: sensor.presence_multi_sensor_fp300_beleuchtungsstarke
+            below: 300
+          - condition: time
+            after: "23:00:00"
+            before: "06:00:00"
+        sequence:
+          - service: scene.turn_on
+            target:
+              entity_id: scene.sexy_bad_licht
+          - service: light.turn_on
+            target:
+              entity_id: light.kajplats_e27_cws_globe_1055lm_2
+            data:
+              brightness_pct: 30
+      - conditions:
+          - condition: trigger
+            id: praesenz_weg
+        sequence:
+          - service: light.turn_off
+            target:
+              entity_id: light.kajplats_e27_cws_globe_1055lm_2
+mode: single
