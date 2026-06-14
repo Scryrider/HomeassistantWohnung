@@ -1,0 +1,69 @@
+blueprint:
+  name: Licht bei Anwesenheit schalten
+  description: >
+    Schaltet ein Licht (oder einen Bereich) ein, sobald ein Präsenz- oder
+    Bewegungssensor "an" meldet, und nach einer konfigurierbaren
+    Verzögerung wieder aus, wenn keine Anwesenheit mehr erkannt wird.
+
+    Funktioniert mit jedem binary_sensor, der bei Anwesenheit auf "on" und
+    bei Abwesenheit auf "off" wechselt - unabhängig davon, ob der Sensor
+    über Matter, Zigbee2MQTT, ZHA oder eine andere Integration eingebunden
+    ist (z. B. device_class occupancy oder motion).
+  domain: automation
+  input:
+    presence_sensor:
+      name: Präsenz-/Bewegungssensor
+      description: >
+        Der binary_sensor, der bei erkannter Anwesenheit auf "on" wechselt.
+      selector:
+        entity:
+          domain: binary_sensor
+
+    light_target:
+      name: Licht / Bereich
+      description: >
+        Das Licht oder der Bereich, der geschaltet werden soll.
+      selector:
+        target:
+          entity:
+            domain: light
+
+    off_delay:
+      name: Ausschaltverzögerung
+      description: >
+        Wartezeit ohne erkannte Anwesenheit, bevor das Licht
+        wieder ausgeschaltet wird.
+      default:
+        minutes: 2
+      selector:
+        duration: {}
+
+trigger:
+  - platform: state
+    entity_id: !input presence_sensor
+    to: "on"
+    id: anwesend
+  - platform: state
+    entity_id: !input presence_sensor
+    to: "off"
+    for: !input off_delay
+    id: abwesend
+
+condition: []
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: anwesend
+        sequence:
+          - action: light.turn_on
+            target: !input light_target
+      - conditions:
+          - condition: trigger
+            id: abwesend
+        sequence:
+          - action: light.turn_off
+            target: !input light_target
+
+mode: single
