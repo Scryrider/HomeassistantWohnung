@@ -1,124 +1,245 @@
 blueprint:
-  name: BILRESA Dual Button - Adaptives Licht
+  name: BILRESA Dual Button - Adaptives Licht (Sonnenstand)
   description: >
-    Zwei-Tasten-Schalter: Taste 1 kurz = Licht an (adaptiv nach Tageszeit, 90%),
-    Taste 2 kurz = Licht aus, Taste 1 lang = Szene aufrufen.
-    Funktioniert mit Matter event.-Entitäten.
-  domain: automation
-  input:
-    taste1_entity:
-      name: Taste 1 Entität
-      description: event.-Entität der ersten Taste
-      selector:
-        entity:
-          domain: event
-    taste2_entity:
-      name: Taste 2 Entität
-      description: event.-Entität der zweiten Taste
-      selector:
-        entity:
-          domain: event
-    licht_entity:
-      name: Lampe
-      description: Die zu steuernde Lampe
-      selector:
-        entity:
-          domain: light
-    szene_entity:
-      name: Szene
-      description: Szene die bei langem Drücken aufgerufen wird
-      selector:
-        entity:
-          domain: scene
-    rgb_morgen:
-      name: RGB Farbe Morgen (06-09 Uhr)
-      description: RGB-Wert für Morgenstunden
-      default: [255, 209, 163]
-      selector:
-        color_rgb:
-    rgb_tag:
-      name: RGB Farbe Tag (09-17 Uhr)
-      description: RGB-Wert für Tagstunden
-      default: [255, 228, 205]
-      selector:
-        color_rgb:
-    rgb_abend:
-      name: RGB Farbe Abend (17-21 Uhr)
-      description: RGB-Wert für Abendstunden
-      default: [255, 180, 107]
-      selector:
-        color_rgb:
-    rgb_nacht:
-      name: RGB Farbe Nacht (21-06 Uhr)
-      description: RGB-Wert für Nachtstunden
-      default: [255, 147, 41]
-      selector:
-        color_rgb:
-    helligkeit:
-      name: Helligkeit
-      description: Helligkeit in Prozent
-      default: 90
-      selector:
-        number:
-          min: 1
-          max: 100
-          unit_of_measurement: "%"
+    Zwei-Tasten-Schalter für Matter event-Entitäten.
+    Taste 1 kurz = Licht an (Farbtemperatur nach Sonnenstand),
+    Taste 2 kurz = Licht aus, Taste 1 lang = Szene aufrufen,
+    Doppelklick auf Taste 1 / Taste 2 = frei belegbare Aktion.
 
-trigger:
-  - platform: state
+    Phasen:
+    Nacht = feste Uhrzeit (Nachtbeginn bis Nachtende).
+    Tag = Sonne über der Elevations-Schwelle.
+    Morgen = Sonne unter der Schwelle und steigend.
+    Abend = Sonne unter der Schwelle und sinkend.
+  domain: automation
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    geraete:
+      name: Geräte
+      icon: mdi:light-switch
+      input:
+        taste1_entity:
+          name: Taste 1 Entität
+          description: event-Entität der ersten Taste
+          selector:
+            entity:
+              domain: event
+        taste2_entity:
+          name: Taste 2 Entität
+          description: event-Entität der zweiten Taste
+          selector:
+            entity:
+              domain: event
+        licht_entity:
+          name: Lampe
+          description: Die zu steuernde Lampe
+          selector:
+            entity:
+              domain: light
+        szene_entity:
+          name: Szene
+          description: Szene, die bei langem Druck auf Taste 1 aufgerufen wird
+          selector:
+            entity:
+              domain: scene
+        helligkeit:
+          name: Helligkeit
+          description: Helligkeit in Prozent beim Einschalten
+          default: 90
+          selector:
+            number:
+              min: 1
+              max: 100
+              unit_of_measurement: "%"
+              mode: slider
+
+    farbtemperatur:
+      name: Farbtemperatur je Phase
+      icon: mdi:palette
+      input:
+        kelvin_morgen:
+          name: Morgen
+          description: Sonne unter der Schwelle, steigend
+          default: 4000
+          selector:
+            color_temp:
+              unit: kelvin
+              min: 2000
+              max: 6500
+        kelvin_tag:
+          name: Tag
+          description: Sonne über der Schwelle
+          default: 5000
+          selector:
+            color_temp:
+              unit: kelvin
+              min: 2000
+              max: 6500
+        kelvin_abend:
+          name: Abend
+          description: Sonne unter der Schwelle, sinkend (auch Fallback, falls der Sonnensensor fehlt)
+          default: 3000
+          selector:
+            color_temp:
+              unit: kelvin
+              min: 2000
+              max: 6500
+        kelvin_nacht:
+          name: Nacht
+          description: Zwischen Nachtbeginn und Nachtende, unabhängig von der Sonne
+          default: 2200
+          selector:
+            color_temp:
+              unit: kelvin
+              min: 2000
+              max: 6500
+
+    doppelklick:
+      name: Doppelklick (optional)
+      icon: mdi:gesture-double-tap
+      collapsed: true
+      input:
+        taste1_doppel:
+          name: Taste 1 doppelt
+          description: Aktion bei Doppelklick auf Taste 1. Leer lassen = keine Aktion.
+          default: []
+          selector:
+            action: {}
+        taste2_doppel:
+          name: Taste 2 doppelt
+          description: Aktion bei Doppelklick auf Taste 2. Leer lassen = keine Aktion.
+          default: []
+          selector:
+            action: {}
+
+    sonne_zeit:
+      name: Sonnenstand & Nachtzeit
+      icon: mdi:weather-sunset
+      collapsed: true
+      input:
+        elevation_schwelle:
+          name: Elevations-Schwelle Tag
+          description: >
+            Ab dieser Sonnenhöhe gilt "Tag". In Sachsen erreicht die Sonne im
+            Dezember mittags nur ca. 15°, die Schwelle daher niedrig halten.
+          default: 5
+          selector:
+            number:
+              min: -6
+              max: 20
+              step: 0.5
+              unit_of_measurement: "°"
+              mode: slider
+        nacht_start:
+          name: Nachtbeginn
+          default: "21:00:00"
+          selector:
+            time:
+        nacht_ende:
+          name: Nachtende
+          default: "06:00:00"
+          selector:
+            time:
+        elevation_entity:
+          name: Sonnenhöhe-Sensor
+          description: Elevation-Sensor der Sun-Integration (ggf. erst aktivieren)
+          default: sensor.sun_solar_elevation
+          selector:
+            entity:
+              domain: sensor
+        rising_entity:
+          name: Sonne-steigt-Sensor
+          description: Binärsensor "Solar rising" der Sun-Integration
+          default: binary_sensor.sun_solar_rising
+          selector:
+            entity:
+              domain: binary_sensor
+
+triggers:
+  - trigger: state
     entity_id: !input taste1_entity
     id: taste1
-  - platform: state
+    not_from: unavailable
+    not_to: unavailable
+  - trigger: state
     entity_id: !input taste2_entity
     id: taste2
+    not_from: unavailable
+    not_to: unavailable
 
-action:
+actions:
   - variables:
-      rgb_morgen: !input rgb_morgen
-      rgb_tag: !input rgb_tag
-      rgb_abend: !input rgb_abend
-      rgb_nacht: !input rgb_nacht
       helligkeit: !input helligkeit
-      rgb_wert: >-
-        {% set h = now().hour %}
-        {% if h >= 6 and h < 9 %}
-          {{ rgb_morgen }}
-        {% elif h >= 9 and h < 17 %}
-          {{ rgb_tag }}
-        {% elif h >= 17 and h < 21 %}
-          {{ rgb_abend }}
-        {% else %}
-          {{ rgb_nacht }}
-        {% endif %}
+      kelvin_morgen: !input kelvin_morgen
+      kelvin_tag: !input kelvin_tag
+      kelvin_abend: !input kelvin_abend
+      kelvin_nacht: !input kelvin_nacht
+      schwelle: !input elevation_schwelle
+      nacht_start: !input nacht_start
+      nacht_ende: !input nacht_ende
+      elev_entity: !input elevation_entity
+      rising_entity: !input rising_entity
+      farbtemp: >-
+        {%- set t = now().strftime('%H:%M:%S') -%}
+        {%- if nacht_start > nacht_ende -%}
+          {%- set nacht = t >= nacht_start or t < nacht_ende -%}
+        {%- else -%}
+          {%- set nacht = t >= nacht_start and t < nacht_ende -%}
+        {%- endif -%}
+        {%- if nacht -%}
+          {{ kelvin_nacht }}
+        {%- elif not has_value(elev_entity) -%}
+          {{ kelvin_abend }}
+        {%- elif states(elev_entity) | float >= schwelle | float -%}
+          {{ kelvin_tag }}
+        {%- elif is_state(rising_entity, 'on') -%}
+          {{ kelvin_morgen }}
+        {%- else -%}
+          {{ kelvin_abend }}
+        {%- endif -%}
+      ereignis: "{{ trigger.to_state.attributes.event_type | default('') }}"
   - choose:
       - conditions:
           - condition: trigger
             id: taste1
           - condition: template
-            value_template: "{{ trigger.to_state.attributes.event_type == 'multi_press_1' }}"
-        sequence:
-          - service: light.turn_on
-            target:
-              entity_id: !input licht_entity
-            data:
-              brightness_pct: "{{ helligkeit }}"
-              rgb_color: "{{ rgb_wert }}"
+            value_template: "{{ ereignis == 'multi_press_2' }}"
+        sequence: !input taste1_doppel
       - conditions:
           - condition: trigger
             id: taste2
           - condition: template
-            value_template: "{{ trigger.to_state.attributes.event_type == 'multi_press_1' }}"
+            value_template: "{{ ereignis == 'multi_press_2' }}"
+        sequence: !input taste2_doppel
+      - conditions:
+          - condition: trigger
+            id: taste1
+          - condition: template
+            value_template: "{{ ereignis == 'multi_press_1' }}"
         sequence:
-          - service: light.turn_off
+          - action: light.turn_on
+            target:
+              entity_id: !input licht_entity
+            data:
+              brightness_pct: "{{ helligkeit }}"
+              color_temp_kelvin: "{{ farbtemp | int }}"
+      - conditions:
+          - condition: trigger
+            id: taste2
+          - condition: template
+            value_template: "{{ ereignis == 'multi_press_1' }}"
+        sequence:
+          - action: light.turn_off
             target:
               entity_id: !input licht_entity
       - conditions:
           - condition: trigger
             id: taste1
           - condition: template
-            value_template: "{{ trigger.to_state.attributes.event_type == 'long_release' }}"
+            value_template: "{{ ereignis == 'long_release' }}"
         sequence:
-          - service: scene.turn_on
+          - action: scene.turn_on
             target:
               entity_id: !input szene_entity
 mode: single
