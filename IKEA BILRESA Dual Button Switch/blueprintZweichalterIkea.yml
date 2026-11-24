@@ -1,16 +1,13 @@
 blueprint:
-  name: BILRESA Dual Button - Adaptives Licht (Sonnenstand)
+  name: BILRESA Dual Button - Adaptives Licht (Phasen-Sensor)
   description: >
     Zwei-Tasten-Schalter für Matter event-Entitäten.
-    Taste 1 kurz = Licht an (Farbtemperatur nach Sonnenstand),
+    Taste 1 kurz = Licht an (Farbe je Phase: Morgen/Tag in Kelvin, Abend/Nacht in RGB),
     Taste 2 kurz = Licht aus, Taste 1 lang = Szene aufrufen,
     Doppelklick auf Taste 1 / Taste 2 = frei belegbare Aktion.
 
-    Phasen:
-    Nacht = feste Uhrzeit (Nachtbeginn bis Nachtende).
-    Tag = Sonne über der Elevations-Schwelle.
-    Morgen = Sonne unter der Schwelle und steigend.
-    Abend = Sonne unter der Schwelle und sinkend.
+    Die Phase (morgen, tag, abend, nacht) kommt aus einem zentralen
+    Template-Sensor. Hier wird nur festgelegt, welche Farbe je Phase gilt.
   domain: automation
   homeassistant:
     min_version: "2024.10.0"
@@ -76,24 +73,21 @@ blueprint:
               unit: kelvin
               min: 2000
               max: 6500
-        kelvin_abend:
-          name: Abend
-          description: Sonne unter der Schwelle, sinkend (auch Fallback, falls der Sonnensensor fehlt)
-          default: 3000
+        rgb_abend:
+          name: Abend (RGB)
+          description: >
+            Sonne unter der Schwelle, sinkend (auch Fallback, falls der
+            Sonnensensor fehlt). Als RGB-Farbe, damit echtes Orange statt
+            gelblichem Warmweiß möglich ist.
+          default: [255, 180, 107]
           selector:
-            color_temp:
-              unit: kelvin
-              min: 2000
-              max: 6500
-        kelvin_nacht:
-          name: Nacht
+            color_rgb:
+        rgb_nacht:
+          name: Nacht (RGB)
           description: Zwischen Nachtbeginn und Nachtende, unabhängig von der Sonne
-          default: 2200
+          default: [255, 147, 41]
           selector:
-            color_temp:
-              unit: kelvin
-              min: 2000
-              max: 6500
+            color_rgb:
 
     doppelklick:
       name: Doppelklick (optional)
@@ -113,48 +107,19 @@ blueprint:
           selector:
             action: {}
 
-    sonne_zeit:
-      name: Sonnenstand & Nachtzeit
-      icon: mdi:weather-sunset
-      collapsed: true
+    phase:
+      name: Lichtphase
+      icon: mdi:theme-light-dark
       input:
-        elevation_schwelle:
-          name: Elevations-Schwelle Tag
+        phase_entity:
+          name: Phasen-Sensor
           description: >
-            Ab dieser Sonnenhöhe gilt "Tag". In Sachsen erreicht die Sonne im
-            Dezember mittags nur ca. 15°, die Schwelle daher niedrig halten.
-          default: 5
-          selector:
-            number:
-              min: -6
-              max: 20
-              step: 0.5
-              unit_of_measurement: "°"
-              mode: slider
-        nacht_start:
-          name: Nachtbeginn
-          default: "21:00:00"
-          selector:
-            time:
-        nacht_ende:
-          name: Nachtende
-          default: "06:00:00"
-          selector:
-            time:
-        elevation_entity:
-          name: Sonnenhöhe-Sensor
-          description: Elevation-Sensor der Sun-Integration (ggf. erst aktivieren)
-          default: sensor.sun_solar_elevation
+            Zentraler Template-Sensor, der morgen, tag, abend oder nacht liefert.
+            Ist er nicht verfügbar oder liefert etwas anderes, gilt "abend".
+          default: sensor.licht_phase
           selector:
             entity:
               domain: sensor
-        rising_entity:
-          name: Sonne-steigt-Sensor
-          description: Binärsensor "Solar rising" der Sun-Integration
-          default: binary_sensor.sun_solar_rising
-          selector:
-            entity:
-              domain: binary_sensor
 
 triggers:
   - trigger: state
@@ -173,31 +138,12 @@ actions:
       helligkeit: !input helligkeit
       kelvin_morgen: !input kelvin_morgen
       kelvin_tag: !input kelvin_tag
-      kelvin_abend: !input kelvin_abend
-      kelvin_nacht: !input kelvin_nacht
-      schwelle: !input elevation_schwelle
-      nacht_start: !input nacht_start
-      nacht_ende: !input nacht_ende
-      elev_entity: !input elevation_entity
-      rising_entity: !input rising_entity
-      farbtemp: >-
-        {%- set t = now().strftime('%H:%M:%S') -%}
-        {%- if nacht_start > nacht_ende -%}
-          {%- set nacht = t >= nacht_start or t < nacht_ende -%}
-        {%- else -%}
-          {%- set nacht = t >= nacht_start and t < nacht_ende -%}
-        {%- endif -%}
-        {%- if nacht -%}
-          {{ kelvin_nacht }}
-        {%- elif not has_value(elev_entity) -%}
-          {{ kelvin_abend }}
-        {%- elif states(elev_entity) | float >= schwelle | float -%}
-          {{ kelvin_tag }}
-        {%- elif is_state(rising_entity, 'on') -%}
-          {{ kelvin_morgen }}
-        {%- else -%}
-          {{ kelvin_abend }}
-        {%- endif -%}
+      rgb_abend: !input rgb_abend
+      rgb_nacht: !input rgb_nacht
+      phase_entity: !input phase_entity
+      phase: >-
+        {%- set p = states(phase_entity) -%}
+        {{ p if p in ['morgen', 'tag', 'abend', 'nacht'] else 'abend' }}
       ereignis: "{{ trigger.to_state.attributes.event_type | default('') }}"
   - choose:
       - conditions:
@@ -218,12 +164,25 @@ actions:
           - condition: template
             value_template: "{{ ereignis == 'multi_press_1' }}"
         sequence:
-          - action: light.turn_on
-            target:
-              entity_id: !input licht_entity
-            data:
-              brightness_pct: "{{ helligkeit }}"
-              color_temp_kelvin: "{{ farbtemp | int }}"
+          # Morgen/Tag: Farbtemperatur über die weißen LEDs (gute Farbwiedergabe).
+          # Abend/Nacht: RGB über die Farb-LEDs (gesättigtes Orange möglich).
+          - if:
+              - condition: template
+                value_template: "{{ phase in ['morgen', 'tag'] }}"
+            then:
+              - action: light.turn_on
+                target:
+                  entity_id: !input licht_entity
+                data:
+                  brightness_pct: "{{ helligkeit }}"
+                  color_temp_kelvin: "{{ (kelvin_morgen if phase == 'morgen' else kelvin_tag) | int }}"
+            else:
+              - action: light.turn_on
+                target:
+                  entity_id: !input licht_entity
+                data:
+                  brightness_pct: "{{ helligkeit }}"
+                  rgb_color: "{{ rgb_nacht if phase == 'nacht' else rgb_abend }}"
       - conditions:
           - condition: trigger
             id: taste2
