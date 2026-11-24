@@ -1,13 +1,16 @@
 blueprint:
-  name: BILRESA Dual Button - Adaptives Licht (Phasen-Sensor)
+  name: BILRESA Dual Button - Adaptives Licht (Sonnenstand)
   description: >
     Zwei-Tasten-Schalter für Matter event-Entitäten.
-    Taste 1 kurz = Licht an (Farbe je Phase: Morgen/Tag in Kelvin, Abend/Nacht in RGB),
+    Taste 1 kurz = Licht an (Farbe nach Sonnenstand: Morgen/Tag in Kelvin, Abend/Nacht in RGB),
     Taste 2 kurz = Licht aus, Taste 1 lang = Szene aufrufen,
     Doppelklick auf Taste 1 / Taste 2 = frei belegbare Aktion.
 
-    Die Phase (morgen, tag, abend, nacht) kommt aus einem zentralen
-    Template-Sensor. Hier wird nur festgelegt, welche Farbe je Phase gilt.
+    Phasen:
+    Nacht = feste Uhrzeit (Nachtbeginn bis Nachtende).
+    Tag = Sonne über der Elevations-Schwelle.
+    Morgen = Sonne unter der Schwelle und steigend.
+    Abend = Sonne unter der Schwelle und sinkend.
   domain: automation
   homeassistant:
     min_version: "2024.10.0"
@@ -107,19 +110,48 @@ blueprint:
           selector:
             action: {}
 
-    phase:
-      name: Lichtphase
-      icon: mdi:theme-light-dark
+    sonne_zeit:
+      name: Sonnenstand & Nachtzeit
+      icon: mdi:weather-sunset
+      collapsed: true
       input:
-        phase_entity:
-          name: Phasen-Sensor
+        elevation_schwelle:
+          name: Elevations-Schwelle Tag
           description: >
-            Zentraler Template-Sensor, der morgen, tag, abend oder nacht liefert.
-            Ist er nicht verfügbar oder liefert etwas anderes, gilt "abend".
-          default: sensor.licht_phase
+            Ab dieser Sonnenhöhe gilt "Tag". In Sachsen erreicht die Sonne im
+            Dezember mittags nur ca. 15°, die Schwelle daher niedrig halten.
+          default: 5
+          selector:
+            number:
+              min: -6
+              max: 20
+              step: 0.5
+              unit_of_measurement: "°"
+              mode: slider
+        nacht_start:
+          name: Nachtbeginn
+          default: "21:00:00"
+          selector:
+            time:
+        nacht_ende:
+          name: Nachtende
+          default: "06:00:00"
+          selector:
+            time:
+        elevation_entity:
+          name: Sonnenhöhe-Sensor
+          description: Elevation-Sensor der Sun-Integration (ggf. erst aktivieren)
+          default: sensor.sun_solar_elevation
           selector:
             entity:
               domain: sensor
+        rising_entity:
+          name: Sonne-steigt-Sensor
+          description: Binärsensor "Solar rising" der Sun-Integration
+          default: binary_sensor.sun_solar_rising
+          selector:
+            entity:
+              domain: binary_sensor
 
 triggers:
   - trigger: state
@@ -140,10 +172,29 @@ actions:
       kelvin_tag: !input kelvin_tag
       rgb_abend: !input rgb_abend
       rgb_nacht: !input rgb_nacht
-      phase_entity: !input phase_entity
+      schwelle: !input elevation_schwelle
+      nacht_start: !input nacht_start
+      nacht_ende: !input nacht_ende
+      elev_entity: !input elevation_entity
+      rising_entity: !input rising_entity
       phase: >-
-        {%- set p = states(phase_entity) -%}
-        {{ p if p in ['morgen', 'tag', 'abend', 'nacht'] else 'abend' }}
+        {%- set t = now().strftime('%H:%M:%S') -%}
+        {%- if nacht_start > nacht_ende -%}
+          {%- set nacht = t >= nacht_start or t < nacht_ende -%}
+        {%- else -%}
+          {%- set nacht = t >= nacht_start and t < nacht_ende -%}
+        {%- endif -%}
+        {%- if nacht -%}
+          nacht
+        {%- elif not has_value(elev_entity) -%}
+          abend
+        {%- elif states(elev_entity) | float >= schwelle | float -%}
+          tag
+        {%- elif is_state(rising_entity, 'on') -%}
+          morgen
+        {%- else -%}
+          abend
+        {%- endif -%}
       ereignis: "{{ trigger.to_state.attributes.event_type | default('') }}"
   - choose:
       - conditions:
